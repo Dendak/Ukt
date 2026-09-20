@@ -1,8 +1,9 @@
 /* Offline-Cache für das Wartungsprotokoll (App-Shell) */
-const CACHE = "ukt-protokoll-v2";
+const CACHE = "ukt-protokoll-v3";
 const ASSETS = [
   "./",
   "./index.html",
+  "./filialen.js",
   "./vendor/jspdf.umd.min.js",
   "./manifest.webmanifest",
   "./icon.svg",

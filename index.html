@@ -245,7 +245,9 @@ main section.step.active { display: block; }
       </div>
       <div class="field" data-req id="f-filiale">
         <label class="lbl" for="filiale">Standort / Filiale / Lager *</label>
-        <input type="text" id="filiale" autocomplete="off" placeholder="z. B. Lidl Filiale 4711 St. Johann">
+        <input type="text" id="filiale" autocomplete="off" placeholder="Filialnummer oder Ort tippen …" list="filialen-list">
+        <datalist id="filialen-list"></datalist>
+        <p class="subtle" id="filiale-hint" style="display:none;"></p>
         <div class="error-hint">Bitte ausfüllen</div>
       </div>
       <div class="field">
@@ -429,6 +431,7 @@ main section.step.active { display: block; }
 </dialog>
 
 <script src="vendor/jspdf.umd.min.js"></script>
+<script src="filialen.js"></script>
 <script>
 "use strict";
 /* ============================================================
@@ -815,6 +818,36 @@ if (!$("#datum").value) {
   const now = new Date();
   $("#datum").value = now.toISOString().slice(0, 10);
 }
+
+/* ============================================================
+   Filialdatenbank: Autocomplete + Autofill
+============================================================ */
+(function initFilialen() {
+  if (typeof FILIALEN === "undefined") return;
+  const dl = $("#filialen-list");
+  const byLabel = new Map();
+  FILIALEN.forEach(f => {
+    const label = `${f.nr} – ${f.adresse}`;
+    byLabel.set(label, f);
+    const opt = document.createElement("option");
+    opt.value = label;
+    dl.appendChild(opt);
+  });
+  const input = $("#filiale");
+  const hint = $("#filiale-hint");
+  function applyMatch() {
+    const f = byLabel.get(input.value.trim());
+    if (!f) return;
+    input.value = f.nr.match(/^\d+$/) ? `Lidl Filiale ${f.nr}` : `Lidl ${f.nr}`;
+    $("#adresse").value = f.adresse;
+    if (f.region) setRadio("fmregion", f.region);
+    if (f.info) { hint.textContent = `Anlage laut Wartungsliste: ${f.info}`; hint.style.display = ""; }
+    else hint.style.display = "none";
+    saveDraft();
+  }
+  input.addEventListener("change", applyMatch);
+  input.addEventListener("input", () => { if (byLabel.has(input.value.trim())) applyMatch(); });
+})();
 
 /* ============================================================
    PDF-Erzeugung
