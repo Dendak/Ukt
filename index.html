@@ -203,6 +203,24 @@ main section.step.active { display: block; }
 .wizard-progress .bar { flex: 1; height: 5px; background: #d7dee6; border-radius: 3px; overflow: hidden; }
 .wizard-progress .bar i { display: block; height: 100%; background: var(--brand); width: 0; transition: width .25s; }
 .footer-bar button.nav-back { padding: 14px 18px; font-size: 16px; }
+.ac-wrap { position: relative; }
+.ac-list {
+  position: absolute; left: 0; right: 0; top: calc(100% + 4px);
+  background: #fff; border: 1px solid var(--border); border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(0,0,0,.18);
+  max-height: 290px; overflow-y: auto; z-index: 30; display: none;
+  -webkit-overflow-scrolling: touch;
+}
+.ac-list.open { display: block; }
+.ac-item { padding: 10px 12px; border-bottom: 1px solid #eef2f6; cursor: pointer; }
+.ac-item:last-child { border-bottom: none; }
+.ac-item .ac-top { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.ac-item .ac-nr { font-weight: 700; color: var(--brand-dark); font-size: 15px; }
+.ac-item .ac-badge { font-size: 11px; background: var(--accent); color: var(--brand-dark); border-radius: 999px; padding: 2px 8px; white-space: nowrap; }
+.ac-item .ac-sub { font-size: 13px; color: var(--muted); margin-top: 1px; }
+.ac-item:hover, .ac-item.sel { background: var(--accent); }
+.ac-empty { padding: 12px; font-size: 13.5px; color: var(--muted); }
+.filiale-ok { color: var(--ok); font-weight: 600; }
 </style>
 </head>
 <body>
@@ -245,8 +263,10 @@ main section.step.active { display: block; }
       </div>
       <div class="field" data-req id="f-filiale">
         <label class="lbl" for="filiale">Standort / Filiale / Lager *</label>
-        <input type="text" id="filiale" autocomplete="off" placeholder="Filialnummer oder Ort tippen …" list="filialen-list">
-        <datalist id="filialen-list"></datalist>
+        <div class="ac-wrap">
+          <input type="text" id="filiale" autocomplete="off" placeholder="Filialnummer oder Ort tippen …">
+          <div class="ac-list" id="filialen-ac"></div>
+        </div>
         <p class="subtle" id="filiale-hint" style="display:none;"></p>
         <div class="error-hint">Bitte ausfüllen</div>
       </div>
@@ -824,29 +844,74 @@ if (!$("#datum").value) {
 ============================================================ */
 (function initFilialen() {
   if (typeof FILIALEN === "undefined") return;
-  const dl = $("#filialen-list");
-  const byLabel = new Map();
-  FILIALEN.forEach(f => {
-    const label = `${f.nr} – ${f.adresse}`;
-    byLabel.set(label, f);
-    const opt = document.createElement("option");
-    opt.value = label;
-    dl.appendChild(opt);
-  });
   const input = $("#filiale");
+  const list = $("#filialen-ac");
   const hint = $("#filiale-hint");
-  function applyMatch() {
-    const f = byLabel.get(input.value.trim());
-    if (!f) return;
-    input.value = f.nr.match(/^\d+$/) ? `Lidl Filiale ${f.nr}` : `Lidl ${f.nr}`;
+
+  const norm = (s) => s.toLowerCase()
+    .replace(/ä/g, "a").replace(/ö/g, "o").replace(/ü/g, "u").replace(/ß/g, "ss")
+    .replace(/[^a-z0-9 ]/g, " ").replace(/\s+/g, " ").trim();
+  const data = FILIALEN.map(f => ({ ...f, such: norm(`${f.nr} ${f.adresse} ${f.region}`) }));
+  let matches = [], sel = -1, suppressOpen = false;
+
+  function select(f) {
+    suppressOpen = true;
+    input.value = /^\d+$/.test(f.nr) ? `Lidl Filiale ${f.nr}` : `Lidl ${f.nr}`;
     $("#adresse").value = f.adresse;
     if (f.region) setRadio("fmregion", f.region);
-    if (f.info) { hint.textContent = `Anlage laut Wartungsliste: ${f.info}`; hint.style.display = ""; }
-    else hint.style.display = "none";
+    hint.innerHTML = `<span class="filiale-ok">✓ Übernommen:</span> ${f.adresse}` +
+      (f.info ? ` &nbsp;·&nbsp; Anlage laut Wartungsliste: ${f.info}` : "");
+    hint.style.display = "";
+    close();
+    input.blur();
     saveDraft();
+    setTimeout(() => { suppressOpen = false; }, 300);
   }
-  input.addEventListener("change", applyMatch);
-  input.addEventListener("input", () => { if (byLabel.has(input.value.trim())) applyMatch(); });
+  function close() { list.classList.remove("open"); list.innerHTML = ""; sel = -1; }
+  function render() {
+    const q = norm(input.value);
+    const words = q.split(" ").filter(Boolean);
+    matches = data.filter(f => words.every(w => f.such.includes(w)));
+    if (words.length) {
+      matches.sort((a, b) => {
+        const an = a.nr.startsWith(words[0]) ? 0 : 1;
+        const bn = b.nr.startsWith(words[0]) ? 0 : 1;
+        return an - bn || (parseInt(a.nr) || 0) - (parseInt(b.nr) || 0);
+      });
+    }
+    list.innerHTML = "";
+    if (matches.length === 0) {
+      list.innerHTML = `<div class="ac-empty">Keine Filiale gefunden – Eingabe wird frei übernommen.</div>`;
+    } else {
+      matches.slice(0, 60).forEach((f) => {
+        const div = document.createElement("div");
+        div.className = "ac-item";
+        div.innerHTML =
+          `<div class="ac-top"><span class="ac-nr">${/^\d+$/.test(f.nr) ? "Filiale " + f.nr : f.nr}</span>` +
+          `${f.region ? `<span class="ac-badge">${f.region}</span>` : ""}</div>` +
+          `<div class="ac-sub">${f.adresse}</div>`;
+        div.addEventListener("pointerdown", (e) => { e.preventDefault(); select(f); });
+        list.appendChild(div);
+      });
+    }
+    list.classList.add("open");
+  }
+  input.addEventListener("input", () => { hint.style.display = "none"; render(); });
+  input.addEventListener("focus", () => { if (!suppressOpen) render(); });
+  input.addEventListener("blur", () => setTimeout(close, 200));
+  input.addEventListener("keydown", (e) => {
+    const items = $$("#filialen-ac .ac-item");
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();
+      if (!list.classList.contains("open")) { render(); return; }
+      sel = e.key === "ArrowDown" ? Math.min(sel + 1, items.length - 1) : Math.max(sel - 1, 0);
+      items.forEach((el, i) => el.classList.toggle("sel", i === sel));
+      if (items[sel]) items[sel].scrollIntoView({ block: "nearest" });
+    } else if (e.key === "Enter") {
+      if (sel >= 0 && matches[sel]) { e.preventDefault(); select(matches[sel]); }
+      else if (matches.length === 1) { e.preventDefault(); select(matches[0]); }
+    } else if (e.key === "Escape") close();
+  });
 })();
 
 /* ============================================================
